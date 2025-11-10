@@ -10,15 +10,10 @@ spring:
 #    password: 123456
   ai:
     dashscope:
-      # 需要替换为你自己的 key
-      api-key: your-api-key
+      api-key: sk-28b4fe59c5944f53814aea9f415ab945
       chat:
         options:
-          model: qwen-plus
-    ollama:
-      base-url: http://localhost:11434
-      chat:
-        model: gemma3:1b
+          model: deepseek-v3
 # 临时注释掉，便于大家开发调试和部署（实际需要启动 MCP 服务）
 #    mcp:
 #      client:
