@@ -27,6 +27,15 @@ const routes = [
       title: 'AI超级智能体 - 鱼皮AI超级智能体应用平台',
       description: 'AI超级智能体是鱼皮AI超级智能体应用平台的全能助手，能解答各类专业问题，提供精准建议和解决方案'
     }
+  },
+  {
+    path: '/game-ranking',
+    name: 'GameRanking',
+    component: () => import('../views/GameRanking.vue'),
+    meta: {
+      title: '游戏排行智能分析 - AI智能分析平台',
+      description: '游戏排行智能分析平台，自动检索游戏行业榜单、流量数据，提供专业的比较和分析功能'
+    }
   }
 ]
 

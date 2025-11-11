@@ -54,7 +54,7 @@ knife4j:
 # searchAPI
 search-api:
   # 需要替换为你自己的 key
-  api-key: 你的 API Key
+  api-key: roesyPmygLSq3R6B6p4GHjat
 # 修改日志级别，查看 Spring AI 更多调用细节
 logging:
   level:

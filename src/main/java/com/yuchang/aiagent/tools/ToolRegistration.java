@@ -24,6 +24,7 @@ public class ToolRegistration {
         TerminalOperationTool terminalOperationTool = new TerminalOperationTool();
         PDFGenerationTool pdfGenerationTool = new PDFGenerationTool();
         TerminateTool terminateTool = new TerminateTool();
+        GameRankingTool gameRankingTool = new GameRankingTool();
         return ToolCallbacks.from(
                 fileOperationTool,
                 webSearchTool,
@@ -31,7 +32,8 @@ public class ToolRegistration {
                 resourceDownloadTool,
                 terminalOperationTool,
                 pdfGenerationTool,
-                terminateTool
+                terminateTool,
+                gameRankingTool
         );
     }
 }

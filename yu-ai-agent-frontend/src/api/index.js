@@ -54,7 +54,13 @@ export const chatWithManus = (message) => {
   return connectSSE('/ai/manus/chat', { message })
 }
 
+// 游戏排行智能分析聊天
+export const chatWithGameRanking = (message) => {
+  return connectSSE('/ai/game-ranking/chat', { message })
+}
+
 export default {
   chatWithLoveApp,
-  chatWithManus
+  chatWithManus,
+  chatWithGameRanking
 } 
