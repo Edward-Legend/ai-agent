@@ -17,7 +17,7 @@ import reactor.core.publisher.Flux;
 import java.io.IOException;
 
 @RestController
-@RequestMapping("/ai")
+@RequestMapping("/xiaocaiguan-ai")
 public class XiaoCaiGuanController {
 
     @Resource
