@@ -1,36 +1,11 @@
 <template>
   <footer class="app-footer">
     <div class="footer-content">
-      <div class="footer-section">
-        <div class="footer-logo">
-          <h3>鱼皮AI超级智能体应用平台</h3>
-        </div>
-        <div class="footer-links">
-          <a href="#">《用户协议》</a>
-          <a href="#">《隐私政策》</a>
-        </div>
-      </div>
-      
-      <div class="footer-section">
-        <h4>友情链接</h4>
-        <div class="footer-links">
-          <a href="https://www.mianshiya.com" target="_blank">面试鸭</a>
-          <a href="#" target="_blank">编程导航</a>
-          <a href="#" target="_blank">代码小抄</a>
-        </div>
-      </div>
-      
-      <div class="footer-section">
-        <h4>联系我们</h4>
-        <div class="footer-links">
-          <a href="#">商务合作</a>
-          <a href="#">站长：鱼皮</a>
-        </div>
-      </div>
+      <!-- 仅保留版权信息 -->
     </div>
     
     <div class="footer-bottom">
-      <p>© {{ currentYear }} 鱼皮AI超级智能体应用平台 - 让AI为你服务</p>
+      <p>© {{ currentYear }} 鱼长AI超级智能体应用平台</p>
     </div>
   </footer>
 </template>
@@ -163,4 +138,4 @@ const currentYear = computed(() => new Date().getFullYear())
     height: 80px;
   }
 }
-</style> 
+</style>

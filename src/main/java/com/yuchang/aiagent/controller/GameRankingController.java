@@ -6,6 +6,7 @@ import jakarta.annotation.Resource;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -47,9 +48,25 @@ public class GameRankingController {
      * @param chatId
      * @return
      */
-    @GetMapping(value = "/game/chat/sse", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+//    @GetMapping(value = "/game/chat/sse", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> doChatWithTools(String message, String chatId) {
         return gameAnalyzeApp.doChatWithTools(message, chatId);
+    }
+
+    /**
+     * SSE 流式调用 AI 恋爱大师应用
+     *
+     * @param message
+     * @param chatId
+     * @return
+     */
+//    @GetMapping(value = "/love_app/chat/server_sent_event")
+    @GetMapping(value = "/game/chat/sse")
+    public Flux<ServerSentEvent<String>> doChatWithLoveAppServerSentEvent(String message, String chatId) {
+        return gameAnalyzeApp.doChatWithTools(message, chatId)
+                .map(chunk -> ServerSentEvent.<String>builder()
+                        .data(chunk)
+                        .build());
     }
 }
 

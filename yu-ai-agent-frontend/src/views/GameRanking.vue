@@ -73,39 +73,9 @@ const sendMessage = (message) => {
   // 设置连接状态
   connectionStatus.value = 'connecting'
   
-  // 临时存储
-  let messageBuffer = []; // 用于存储SSE消息的缓冲区
-  let lastBubbleTime = Date.now(); // 上一个气泡的创建时间
-  let isFirstResponse = true; // 是否是第一次响应
-  
-  const chineseEndPunctuation = ['。', '！', '？', '…']; // 中文句子结束标点
-  const minBubbleInterval = 800; // 气泡最小间隔时间(毫秒)
-  
-  // 创建消息气泡的函数
-  const createBubble = (content, type = 'ai-answer') => {
-    if (!content.trim()) return;
-    
-    // 添加适当的延迟，使消息显示更自然
-    const now = Date.now();
-    const timeSinceLastBubble = now - lastBubbleTime;
-    
-    if (isFirstResponse) {
-      // 第一条消息立即显示
-      addMessage(content, false, type);
-      isFirstResponse = false;
-    } else if (timeSinceLastBubble < minBubbleInterval) {
-      // 如果与上一气泡间隔太短，添加一个延迟
-      setTimeout(() => {
-        addMessage(content, false, type);
-      }, minBubbleInterval - timeSinceLastBubble);
-    } else {
-      // 正常添加消息
-      addMessage(content, false, type);
-    }
-    
-    lastBubbleTime = now;
-    messageBuffer = []; // 清空缓冲区
-  };
+  // 创建一个空的AI回复消息（用于流式显示）
+  const aiMessageIndex = messages.value.length
+  addMessage('', false, 'ai-answer')
   
   eventSource = chatWithGameRanking(message)
   
@@ -114,31 +84,21 @@ const sendMessage = (message) => {
     const data = event.data
     
     if (data && data !== '[DONE]') {
-      messageBuffer.push(data);
-      
-      // 检查是否应该创建新气泡
-      const combinedText = messageBuffer.join('');
-      
-      // 句子结束或消息长度达到阈值
-      const lastChar = data.charAt(data.length - 1);
-      const hasCompleteSentence = chineseEndPunctuation.includes(lastChar) || data.includes('\n\n');
-      const isLongEnough = combinedText.length > 40;
-      
-      if (hasCompleteSentence || isLongEnough) {
-        createBubble(combinedText);
+      // 更新最新的AI消息内容，而不是创建新消息（实现流式打字机效果）
+      if (aiMessageIndex < messages.value.length) {
+        messages.value[aiMessageIndex].content += data
       }
     }
     
     if (data === '[DONE]') {
-      // 如果还有未显示的内容，创建最后一个气泡
-      if (messageBuffer.length > 0) {
-        const remainingContent = messageBuffer.join('');
-        createBubble(remainingContent, 'ai-final');
-      }
-      
       // 完成后关闭连接
       connectionStatus.value = 'disconnected'
       eventSource.close()
+      
+      // 更新最后一条消息的类型为完成状态
+      if (aiMessageIndex < messages.value.length) {
+        messages.value[aiMessageIndex].type = 'ai-final'
+      }
     }
   }
   
@@ -148,10 +108,9 @@ const sendMessage = (message) => {
     connectionStatus.value = 'error'
     eventSource.close()
     
-    // 如果出错时有未显示的内容，也创建气泡
-    if (messageBuffer.length > 0) {
-      const remainingContent = messageBuffer.join('');
-      createBubble(remainingContent, 'ai-error');
+    // 更新最后一条消息的类型为错误状态
+    if (aiMessageIndex < messages.value.length) {
+      messages.value[aiMessageIndex].type = 'ai-error'
     }
   }
 }
@@ -164,7 +123,7 @@ const goBack = () => {
 // 页面加载时添加欢迎消息
 onMounted(() => {
   // 添加欢迎消息
-  addMessage('你好！我是游戏排行智能分析助手。我可以帮你：\n1. 自动检索游戏行业的各种榜单（如3DM游戏排行榜、Steam热门游戏等）\n2. 分析游戏的流量、热度、玩家数据\n3. 比较不同游戏的表现和趋势\n4. 提供游戏行业洞察和建议\n\n请告诉我你想了解什么游戏数据？', false)
+  addMessage('你好！我是游戏排行智能分析助手。我可以帮你：\n1. 自动检索游戏行业的各种榜单\n2. 分析游戏的流量、热度、玩家数据\n3. 比较不同游戏的表现和趋势\n4. 提供游戏行业洞察和建议\n\n请告诉我你想了解什么游戏数据？', false)
 })
 
 // 组件销毁前关闭SSE连接
