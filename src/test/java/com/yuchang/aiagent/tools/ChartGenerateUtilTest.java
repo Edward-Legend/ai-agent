@@ -1,11 +1,11 @@
 package com.yuchang.aiagent.tools;
 
+import com.yuchang.aiagent.util.ChartGenerateUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -17,10 +17,10 @@ import static org.mockito.Mockito.when;
  * ChartGenerationTool的单元测试
  */
 @ExtendWith(MockitoExtension.class)
-public class ChartGenerationToolTest {
+public class ChartGenerateUtilTest {
 
     @InjectMocks
-    private ChartGenerationTool chartGenerationTool;
+    private ChartGenerateUtil chartGenerateUtil;
 
     @Mock
     private MultipartFile mockFile;
@@ -35,7 +35,7 @@ public class ChartGenerationToolTest {
         when(mockFile.getSize()).thenReturn(500L); // 小于10MB
 
         // 测试不抛出异常
-        assertDoesNotThrow(() -> chartGenerationTool.validateFile(mockFile));
+        assertDoesNotThrow(() -> chartGenerateUtil.validateFile(mockFile));
     }
 
     /**
@@ -48,7 +48,7 @@ public class ChartGenerationToolTest {
 
         // 验证抛出异常
         RuntimeException exception = assertThrows(RuntimeException.class, 
-                () -> chartGenerationTool.validateFile(mockFile));
+                () -> chartGenerateUtil.validateFile(mockFile));
         assertTrue(exception.getMessage().contains("仅支持Excel文件"));
     }
 
@@ -63,7 +63,7 @@ public class ChartGenerationToolTest {
 
         // 验证抛出异常
         RuntimeException exception = assertThrows(RuntimeException.class, 
-                () -> chartGenerationTool.validateFile(mockFile));
+                () -> chartGenerateUtil.validateFile(mockFile));
         assertTrue(exception.getMessage().contains("文件大小不能超过10MB"));
     }
 
@@ -82,7 +82,7 @@ public class ChartGenerationToolTest {
 
         // 简化测试，捕获任何可能的异常但不中断测试
         try {
-            ChartGenerationTool.BiResponse response = chartGenerationTool.generateChart(analysisGoal, chartType, csvData);
+            ChartGenerateUtil.BiResponse response = chartGenerateUtil.generateChart(analysisGoal, chartType, csvData);
             // 验证返回结果不为空
             assertNotNull(response, "响应不应为空");
         } catch (Exception e) {

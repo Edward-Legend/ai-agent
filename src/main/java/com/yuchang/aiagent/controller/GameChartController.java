@@ -1,10 +1,12 @@
 package com.yuchang.aiagent.controller;
 
-import com.yuchang.aiagent.tools.ChartGenerationTool;
+import com.yuchang.aiagent.util.ChartGenerateUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Map;
 
 /**
  * 游戏图表生成Controller
@@ -14,11 +16,11 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/ai/game-ranking/chart")
 public class GameChartController {
 
-    private final ChartGenerationTool chartGenerationTool;
+    private final ChartGenerateUtil chartGenerateUtil;
 
     @Autowired
-    public GameChartController(ChartGenerationTool chartGenerationTool) {
-        this.chartGenerationTool = chartGenerationTool;
+    public GameChartController(ChartGenerateUtil chartGenerateUtil) {
+        this.chartGenerateUtil = chartGenerateUtil;
     }
 
     /**
@@ -35,13 +37,13 @@ public class GameChartController {
             @RequestParam(value = "chartType", required = false) String chartType) {
         try {
             // 校验文件
-            chartGenerationTool.validateFile(file);
+            chartGenerateUtil.validateFile(file);
 
             // 转换Excel为CSV
-            String csvData = chartGenerationTool.excelToCsv(file);
+            String csvData = chartGenerateUtil.excelToCsv(file);
 
             // 生成图表，修正参数顺序
-            ChartGenerationTool.BiResponse response = chartGenerationTool.generateChart(csvData, goal, chartType);
+            ChartGenerateUtil.BiResponse response = chartGenerateUtil.generateChart(csvData, goal, chartType);
             // 使用正确的方法名
             return ResponseEntity.ok(Map.of("chart", response.genChart(), "result", response.genResult()));
         } catch (RuntimeException e) {
@@ -72,7 +74,7 @@ public class GameChartController {
             }
 
             // 生成图表，修正参数顺序
-            ChartGenerationTool.BiResponse response = chartGenerationTool.generateChart(data, goal, chartType);
+            ChartGenerateUtil.BiResponse response = chartGenerateUtil.generateChart(data, goal, chartType);
 
             // 使用正确的方法名
             return ResponseEntity.ok(Map.of("chart", response.genChart(), "result", response.genResult()));

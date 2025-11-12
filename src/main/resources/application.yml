@@ -14,6 +14,22 @@ spring:
       chat:
         options:
           model: deepseek-v3
+    alibaba:
+      toolcalling:
+        # 百度搜索
+        baidu:
+          search:
+            enabled: true
+        # 爬虫工具
+        crawler:
+          firecrawl:
+            enabled: false
+#            api-key: xxxx
+            token: xxxx
+          jina:
+            api-key: jina_6efc1e2f8c2d46a1a5362821f7cc315eNsLl_a1UP82oHUof28W5yZC_IkCb
+            enabled: true
+
 # 临时注释掉，便于大家开发调试和部署（实际需要启动 MCP 服务）
 #    mcp:
 #      client:

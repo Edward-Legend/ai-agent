@@ -54,7 +54,7 @@ public class GameRankingController {
     }
 
     /**
-     * SSE 流式调用 AI 恋爱大师应用
+     * SSE 流式调用 AI 应用
      *
      * @param message
      * @param chatId

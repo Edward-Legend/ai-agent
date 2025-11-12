@@ -1,6 +1,6 @@
 package com.yuchang.aiagent.app;
 
-import com.yuchang.aiagent.tools.ChartGenerationTool;
+import com.yuchang.aiagent.util.ChartGenerateUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
@@ -24,7 +24,7 @@ public class GameAnalyzeAppTest {
     private ChatClient chatClient;
     
     @Mock
-    private ChartGenerationTool chartGenerationTool;
+    private ChartGenerateUtil chartGenerateUtil;
     
     @BeforeEach
     void setUp() {
@@ -41,11 +41,11 @@ public class GameAnalyzeAppTest {
         String gameData = "游戏名称,收入\n王者荣耀,1000\n和平精英,800";
         
         // 模拟ChartGenerationTool的响应
-        ChartGenerationTool.BiResponse mockResponse = new ChartGenerationTool.BiResponse(
+        ChartGenerateUtil.BiResponse mockResponse = new ChartGenerateUtil.BiResponse(
                 "{\"title\":{\"text\":\"游戏收入分析\"}}", 
                 "王者荣耀收入最高" 
         );
-        when(chartGenerationTool.generateChart(anyString(), anyString(), anyString()))
+        when(chartGenerateUtil.generateChart(anyString(), anyString(), anyString()))
                 .thenReturn(mockResponse);
         
         // 执行测试

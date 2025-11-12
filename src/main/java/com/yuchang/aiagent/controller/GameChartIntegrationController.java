@@ -2,7 +2,7 @@ package com.yuchang.aiagent.controller;
 
 import com.yuchang.aiagent.app.GameAnalyzeApp;
 import com.yuchang.aiagent.app.GameAnalyzeApp.GameAnalysisReport;
-import com.yuchang.aiagent.tools.ChartGenerationTool;
+import com.yuchang.aiagent.util.ChartGenerateUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -22,11 +22,11 @@ import java.util.UUID;
 public class GameChartIntegrationController {
 
     private final GameAnalyzeApp gameAnalyzeApp;
-    private final ChartGenerationTool chartGenerationTool;
+    private final ChartGenerateUtil chartGenerateUtil;
 
-    public GameChartIntegrationController(GameAnalyzeApp gameAnalyzeApp, ChartGenerationTool chartGenerationTool) {
+    public GameChartIntegrationController(GameAnalyzeApp gameAnalyzeApp, ChartGenerateUtil chartGenerateUtil) {
         this.gameAnalyzeApp = gameAnalyzeApp;
-        this.chartGenerationTool = chartGenerationTool;
+        this.chartGenerateUtil = chartGenerateUtil;
     }
 
     /**
@@ -45,7 +45,7 @@ public class GameChartIntegrationController {
             String analysisGoal = request.getOrDefault("analysisGoal", "分析游戏下载量和收入数据");
             String chartType = request.getOrDefault("chartType", "bar");
 
-            ChartGenerationTool.BiResponse response = chartGenerationTool.generateChart(gameData, analysisGoal, chartType);
+            ChartGenerateUtil.BiResponse response = chartGenerateUtil.generateChart(gameData, analysisGoal, chartType);
             
             Map<String, Object> result = new HashMap<>();
             result.put("chartConfig", response.genChart());
@@ -100,13 +100,13 @@ public class GameChartIntegrationController {
             @RequestParam(value = "chartType", required = false) String chartType) {
         try {
             // 验证文件
-            chartGenerationTool.validateFile(file);
+            chartGenerateUtil.validateFile(file);
             
             // Excel转CSV
-            String csvData = chartGenerationTool.excelToCsv(file);
+            String csvData = chartGenerateUtil.excelToCsv(file);
             
             // 生成图表
-            ChartGenerationTool.BiResponse response = chartGenerationTool.generateChart(csvData, analysisGoal, chartType);
+            ChartGenerateUtil.BiResponse response = chartGenerateUtil.generateChart(csvData, analysisGoal, chartType);
             
             Map<String, Object> result = new HashMap<>();
             result.put("chartConfig", response.genChart());

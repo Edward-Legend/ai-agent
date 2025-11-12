@@ -1,24 +1,22 @@
 package com.yuchang.aiagent.app;
 
+import com.alibaba.cloud.ai.toolcalling.crawler.CrawlerService;
 import com.yuchang.aiagent.advisor.MyLoggerAdvisor;
-import com.yuchang.aiagent.rag.QueryRewriter;
-import com.yuchang.aiagent.tools.ChartGenerationTool;
+import com.yuchang.aiagent.util.ChartGenerateUtil;
 import com.yuchang.aiagent.tools.GameRankingTool;
 import com.yuchang.aiagent.tools.WebSearchTool;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.api.Advisor;
-import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.ToolCallbackProvider;
-import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -31,6 +29,10 @@ public class GameAnalyzeApp {
 
     private final ChatClient chatClient;
 
+    @Autowired
+    @Qualifier("jinaFunction")
+    private CrawlerService crawlerService;
+
     @Value("${search-api.api-key}")
     private String searchApiKey;
 
@@ -39,13 +41,13 @@ public class GameAnalyzeApp {
     private ToolCallback[] allTools;
 
     @Resource
-    private ChartGenerationTool chartGenerationTool;
+    private ChartGenerateUtil chartGenerateUtil;
 
     private static final String SYSTEM_PROMPT = "你是一名专业的游戏行业数据分析师，擅长从多维度解读市场变化。请严格遵守以下规则：\n" +
             "\n" +
             "# 角色职责\n" +
             "- 主要目标：基于用户查询，检索最新游戏榜单、流量、收入数据，并进行可视化比较（如增长率、份额变化）。\n" +
-            "- 限制：仅回答与游戏行业相关的问题，若数据不足需明确说明来源局限性。\n" +
+            "- 限制：仅回答与游戏行业相关的问题\n" +
             "- 工具调用：你应当灵活使用工具调用，当工具返回结果为空时，应当继续使用Search工具。\n" +
             "- 图表生成：当用户需要对游戏数据进行可视化分析时，你可以将数据整理为CSV格式并使用图表生成工具创建可视化报表。\n" +
             "\n" +
@@ -155,7 +157,7 @@ public class GameAnalyzeApp {
     public GameAnalysisReport generateGameAnalysisReport(String gameData, String analysisGoal, String chartType) {
         try {
             // 使用图表生成工具生成图表和分析结果
-            ChartGenerationTool.BiResponse response = chartGenerationTool.generateChart(analysisGoal, chartType, gameData);
+            ChartGenerateUtil.BiResponse response = chartGenerateUtil.generateChart(gameData, analysisGoal, chartType);
 
             // 构造分析报告
             String title = "游戏行业数据分析报告 - " + analysisGoal;
@@ -227,7 +229,7 @@ public class GameAnalyzeApp {
 
 
     /**
-     * AI 恋爱报告功能（支持调用工具）
+     * AI 调用工具
      *
      * @param message
      * @param chatId
@@ -247,13 +249,18 @@ public class GameAnalyzeApp {
 //        log.info("content: {}", content);
 //        return content;
 
-
         return chatClient
                 .prompt()
                 .user(message)
+//                .toolNames("crawler", "baiduSearch")
+                .toolNames("baiduSearch")
+//                .toolNames("jinaFunction")  // jina爬虫工具,很坑,不知道名字
                 .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
+
 //                .toolCallbacks(allTools)
-                .tools(new GameRankingTool(), new WebSearchTool(searchApiKey))
+//                .tools(new GameRankingTool(), new WebSearchTool(searchApiKey))
+//                .tools(crawlerService)
+
                 .stream()
                 .content();
     }

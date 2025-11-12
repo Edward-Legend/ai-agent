@@ -59,8 +59,32 @@ export const chatWithGameRanking = (message, chatId) => {
   return connectSSE('/ai/game-ranking/game/chat/sse', { message, chatId })
 }
 
+// 获取最新的游戏榜单报表
+export const getLatestGameReports = () => {
+  return request.get('/ai/game-ranking/report/latest')
+}
+
+// 获取Steam榜单报表
+export const getSteamReport = () => {
+  return request.get('/ai/game-ranking/report/steam')
+}
+
+// 获取TapTap榜单报表
+export const getTapTapReport = () => {
+  return request.get('/ai/game-ranking/report/taptap')
+}
+
+// 获取3DM榜单报表
+export const get3DMReport = () => {
+  return request.get('/ai/game-ranking/report/3dm')
+}
+
 export default {
   chatWithLoveApp,
   chatWithManus,
-  chatWithGameRanking
+  chatWithGameRanking,
+  getLatestGameReports,
+  getSteamReport,
+  getTapTapReport,
+  get3DMReport
 } 
