@@ -2,6 +2,8 @@ package com.yuchang.aiagent.app;
 
 import com.yuchang.aiagent.advisor.MyLoggerAdvisor;
 import com.yuchang.aiagent.rag.QueryRewriter;
+import com.yuchang.aiagent.tools.GameRankingTool;
+import com.yuchang.aiagent.tools.WebSearchTool;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -16,6 +18,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
@@ -23,19 +26,35 @@ import java.util.List;
 
 @Component
 @Slf4j
-public class XiaoCaiGuanApp {
+public class GameAnalyzeApp {
 
     private final ChatClient chatClient;
 
-    private static final String SYSTEM_PROMPT = "你是一个资深的IT行业的就业咨询、职业规划咨询师，" +
-            "专门帮助需要寻求职业指导的用户，你的任务是根据他们的人格特质、技能、兴趣、专业和工作经验帮助他们确定最适合的职业。";
+    @Value("${search-api.api-key}")
+    private String searchApiKey;
+
+    // AI 调用工具能力
+    @Resource
+    private ToolCallback[] allTools;
+
+    private static final String SYSTEM_PROMPT = "你是一名专业的游戏行业数据分析师，擅长从多维度解读市场变化。请严格遵守以下规则：\n" +
+            "\n" +
+            "# 角色职责\n" +
+            "- 主要目标：基于用户查询，检索最新游戏榜单、流量、收入数据，并进行可视化比较（如增长率、份额变化）。\n" +
+            "- 限制：仅回答与游戏行业相关的问题，若数据不足需明确说明来源局限性。\n" +
+            "- 工具调用：你应当灵活使用工具调用，当工具返回结果为空时，应当继续使用Search工具" +
+            "\n" +
+            "# 数据处理原则\n" +
+            "1. **指标标准化**：统一将收入转换为万美元、下载量转换为万次，日期格式为YYYY-MM-DD。\n" +
+            "2. **比较逻辑**：计算环比增长率（(本期-上期)/上期）、市场份额（单个游戏收入/总收入）。\n" +
+            "3. **洞察生成**：突出异常值（如排名跃升>5位）、趋势变化（连续增长/下降）。";
 
     /**
      * 初始化 ChatClient
      *
      * @param dashscopeChatModel
      */
-    public XiaoCaiGuanApp(ChatModel dashscopeChatModel) {
+    public GameAnalyzeApp(ChatModel dashscopeChatModel) {
 //        // 初始化基于文件的对话记忆
 //        String fileDir = System.getProperty("user.dir") + "/tmp/chat-memory";
 //        ChatMemory chatMemory = new FileBasedChatMemory(fileDir);
@@ -96,7 +115,7 @@ public class XiaoCaiGuanApp {
     }
 
     /**
-     * AI 恋爱报告功能（结构化输出）
+     * AI 报告功能（结构化输出）
      *
      * @param message
      * @param chatId
@@ -114,59 +133,7 @@ public class XiaoCaiGuanApp {
         return recommendationeReport;
     }
 
-    // AI 恋爱知识库问答功能
 
-    @Resource
-    private VectorStore loveAppVectorStore;
-
-    @Resource
-    private Advisor loveAppRagCloudAdvisor;
-
-    @Resource
-    private VectorStore pgVectorVectorStore;
-
-    @Resource
-    private QueryRewriter queryRewriter;
-
-    /**
-     * 和 RAG 知识库进行对话
-     *
-     * @param message
-     * @param chatId
-     * @return
-     */
-    public String doChatWithRag(String message, String chatId) {
-        // 查询重写
-        String rewrittenMessage = queryRewriter.doQueryRewrite(message);
-        ChatResponse chatResponse = chatClient
-                .prompt()
-                // 使用改写后的查询
-                .user(rewrittenMessage)
-                .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
-                // 开启日志，便于观察效果
-                .advisors(new MyLoggerAdvisor())
-                // 应用 RAG 知识库问答
-                .advisors(new QuestionAnswerAdvisor(loveAppVectorStore))
-                // 应用 RAG 检索增强服务（基于云知识库服务）
-//                .advisors(loveAppRagCloudAdvisor)
-                // 应用 RAG 检索增强服务（基于 PgVector 向量存储）
-//                .advisors(new QuestionAnswerAdvisor(pgVectorVectorStore))
-                // 应用自定义的 RAG 检索增强服务（文档查询器 + 上下文增强器）
-//                .advisors(
-//                        LoveAppRagCustomAdvisorFactory.createLoveAppRagCustomAdvisor(
-//                                loveAppVectorStore, "单身"
-//                        )
-//                )
-                .call()
-                .chatResponse();
-        String content = chatResponse.getResult().getOutput().getText();
-        log.info("content: {}", content);
-        return content;
-    }
-
-    // AI 调用工具能力
-    @Resource
-    private ToolCallback[] allTools;
 
     /**
      * AI 恋爱报告功能（支持调用工具）
@@ -175,45 +142,30 @@ public class XiaoCaiGuanApp {
      * @param chatId
      * @return
      */
-    public String doChatWithTools(String message, String chatId) {
-        ChatResponse chatResponse = chatClient
+    public Flux<String> doChatWithTools(String message, String chatId) {
+//        ChatResponse chatResponse = chatClient
+//                .prompt()
+//                .user(message)
+//                .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
+//                // 开启日志，便于观察效果
+//                .advisors(new MyLoggerAdvisor())
+//                .toolCallbacks(allTools)
+//                .call()
+//                .chatResponse();
+//        String content = chatResponse.getResult().getOutput().getText();
+//        log.info("content: {}", content);
+//        return content;
+
+
+        return chatClient
                 .prompt()
                 .user(message)
                 .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
-                // 开启日志，便于观察效果
-                .advisors(new MyLoggerAdvisor())
-                .toolCallbacks(allTools)
-                .call()
-                .chatResponse();
-        String content = chatResponse.getResult().getOutput().getText();
-        log.info("content: {}", content);
-        return content;
+//                .toolCallbacks(allTools)
+                .tools(new GameRankingTool(), new WebSearchTool(searchApiKey))
+                .stream()
+                .content();
     }
 
-    // AI 调用 MCP 服务
 
-    @Resource
-    private ToolCallbackProvider toolCallbackProvider;
-
-    /**
-     * AI 恋爱报告功能（调用 MCP 服务）
-     *
-     * @param message
-     * @param chatId
-     * @return
-     */
-    public String doChatWithMcp(String message, String chatId) {
-        ChatResponse chatResponse = chatClient
-                .prompt()
-                .user(message)
-                .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
-                // 开启日志，便于观察效果
-                .advisors(new MyLoggerAdvisor())
-                .toolCallbacks(toolCallbackProvider)
-                .call()
-                .chatResponse();
-        String content = chatResponse.getResult().getOutput().getText();
-        log.info("content: {}", content);
-        return content;
-    }
 }

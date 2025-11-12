@@ -144,6 +144,82 @@ public class GameRankingTool {
     }
 
     /**
+     * 爬取 TapTap 排行榜（热门榜、预约榜、热卖榜、热玩榜、新品榜）
+     */
+    @Tool(description = "爬取TapTap平台的多个榜单（热门、预约、热卖、热玩、新品），返回名称、厂商、评分、类型与榜单、名次等信息")
+    public String fetchTapTapTopBoards() {
+        try {
+            Map<String, String> boardToUrl = new HashMap<>();
+            boardToUrl.put("热门榜", "https://www.taptap.com/top/download");
+            boardToUrl.put("新品榜", "https://www.taptap.com/top/new");
+            boardToUrl.put("预约榜", "https://www.taptap.com/top/reserve");
+            boardToUrl.put("热卖榜", "https://www.taptap.com/top/sell");
+            boardToUrl.put("热玩榜", "https://www.taptap.com/top/played");
+
+            List<Map<String, String>> gameList = new ArrayList<>();
+
+            for (Map.Entry<String, String> entry : boardToUrl.entrySet()) {
+                String boardName = entry.getKey();
+                String url = entry.getValue();
+
+                Document doc = Jsoup.connect(url)
+                        .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        .timeout(15000)
+                        .get();
+
+                // 每一个游戏条目的中部信息容器
+                Elements items = doc.select("div.top-card-middle");
+                int rank = 1;
+                for (Element item : items) {
+                    Map<String, String> game = new HashMap<>();
+                    game.put("board", boardName);
+                    game.put("rank", String.valueOf(rank));
+
+                    Element nameEl = item.selectFirst("a h4");
+                    if (nameEl != null) {
+                        game.put("name", nameEl.text());
+                    }
+
+                    Element developerEl = item.selectFirst("p a");
+                    if (developerEl != null) {
+                        game.put("developer", developerEl.text());
+                    }
+
+                    Element scoreEl = item.selectFirst("div.card-middle-score p");
+                    if (scoreEl != null) {
+                        game.put("score", scoreEl.text());
+                    }
+
+                    Elements typeEls = item.select("div.card-middle-category a");
+                    if (typeEls != null && !typeEls.isEmpty()) {
+                        List<String> types = new ArrayList<>();
+                        for (Element t : typeEls) {
+                            types.add(t.text());
+                        }
+                        game.put("type", String.join(",", types));
+                    }
+
+                    if (game.containsKey("name")) {
+                        gameList.add(game);
+                        rank++;
+                    }
+                }
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("source", "TapTap");
+            result.put("urls", boardToUrl);
+            result.put("count", gameList.size());
+            result.put("games", gameList);
+
+            return JSONUtil.toJsonPrettyStr(result);
+        } catch (Exception e) {
+            log.error("爬取TapTap排行榜失败", e);
+            return "错误：爬取TapTap排行榜失败 - " + e.getMessage();
+        }
+    }
+
+    /**
      * 爬取指定游戏网站的游戏排行榜
      */
     @Tool(description = "爬取指定URL的游戏排行榜数据，支持自定义网站")
