@@ -43,6 +43,9 @@ public class GameAnalyzeApp {
     @Resource
     private ChartGenerateUtil chartGenerateUtil;
 
+    @Resource
+    private GameRankingTool gameRankingTool;
+
     private static final String SYSTEM_PROMPT = "你是一名专业的游戏行业数据分析师，擅长从多维度解读市场变化。请严格遵守以下规则：\n" +
             "\n" +
             "# 角色职责\n" +
@@ -253,12 +256,11 @@ public class GameAnalyzeApp {
                 .prompt()
                 .user(message)
 //                .toolNames("crawler", "baiduSearch")
-                .toolNames("baiduSearch")
 //                .toolNames("jinaFunction")  // jina爬虫工具,很坑,不知道名字
                 .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
 
 //                .toolCallbacks(allTools)
-//                .tools(new GameRankingTool(), new WebSearchTool(searchApiKey))
+                .tools(gameRankingTool, new WebSearchTool(searchApiKey))
 //                .tools(crawlerService)
 
                 .stream()

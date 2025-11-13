@@ -6,6 +6,7 @@ import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONUtil;
 import cn.hutool.json.JSONObject;
+import com.github.benmanes.caffeine.cache.Cache;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -13,6 +14,8 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,7 +29,19 @@ import java.util.regex.Pattern;
  * 支持爬取多个游戏网站的排行榜数据
  */
 @Slf4j
+@Component
 public class GameRankingTool {
+
+    private final Cache<String, String> steamRankingCache;
+
+    public GameRankingTool(@Qualifier("steamRankingCache") Cache<String, String> steamRankingCache) {
+        this.steamRankingCache = steamRankingCache;
+    }
+
+    private static final String STEAM_TOP_GAMES_API = "https://api.steampowered.com/ISteamChartsService/GetMostPlayedGames/v1/?count=25";
+    private static final String STEAM_STATS_URL = "https://store.steampowered.com/stats/";
+    private static final String STEAM_CHARTS_TOPSELLING_URL = "https://store.steampowered.com/search/?filter=globaltopsellers&page=1&os=win";
+    private static final int STEAM_TOP_LIMIT = 25;
 
     /**
      * 爬取3DM游戏排行榜
@@ -90,295 +105,219 @@ public class GameRankingTool {
 
     /**
      * 爬取Steam热门游戏排行榜
+     * 使用 Caffeine 缓存，缓存时间 30 分钟
      */
-    @Tool(description = "爬取Steam平台的热门游戏排行榜，返回游戏名称、当前玩家数、峰值玩家数等信息")
+    @Tool(description = "爬取Steam平台的热门游戏排行榜，返回游戏名称、appid、发售日期、价格等信息")
     public String fetchSteamTopGames() {
-        try {
-            String apiResult = fetchSteamTopGamesFromApi();
-            if (apiResult != null) {
-                return apiResult;
-            }
-        } catch (Exception e) {
-            log.warn("通过Steam官方接口获取热门游戏失败，将尝试网页备选方案", e);
+        // 使用固定的缓存键
+        String cacheKey = "steam_top_games";
+        
+        // 先从缓存中获取
+        String cachedResult = steamRankingCache.getIfPresent(cacheKey);
+        if (cachedResult != null) {
+            log.debug("从缓存中获取Steam排行榜数据");
+            return cachedResult;
         }
-
+        
+        log.debug("缓存未命中，开始爬取Steam排行榜数据");
+        
         try {
-            String htmlResult = fetchSteamTopGamesFromHtml();
-            if (htmlResult != null) {
-                return htmlResult;
-            }
-        } catch (Exception e) {
-            log.warn("通过Steam网页解析热门游戏失败", e);
-        }
-
-        try {
-            String steamChartsResult = fetchSteamTopGamesFromSteamCharts();
-            if (steamChartsResult != null) {
-                return steamChartsResult;
-            }
-        } catch (Exception e) {
-            log.warn("通过SteamCharts解析热门游戏失败", e);
-        }
-
-        return "错误：爬取Steam热门游戏失败 - 数据源不可用";
-    }
-
-    private static final String STEAM_TOP_GAMES_API = "https://api.steampowered.com/ISteamChartsService/GetMostPlayedGames/v1/?count=25";
-    private static final String STEAM_STATS_URL = "https://store.steampowered.com/stats/";
-    private static final int STEAM_TOP_LIMIT = 20;
-
-    private String fetchSteamTopGamesFromApi() {
-        try {
-            HttpResponse response = HttpRequest.get(STEAM_TOP_GAMES_API)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .timeout(10000)
-                    .execute();
-
-            if (!response.isOk()) {
-                log.warn("Steam热门游戏接口返回异常：HTTP {}", response.getStatus());
-                return null;
-            }
-
-            String body = response.body();
-            if (StrUtil.isBlank(body)) {
-                log.warn("Steam热门游戏接口返回为空");
-                return null;
-            }
-
-            JSONObject root = JSONUtil.parseObj(body);
-            JSONObject resp = root.getJSONObject("response");
-            if (resp == null) {
-                log.warn("Steam热门游戏接口缺少response节点");
-                return null;
-            }
-
-            JSONArray ranks = resp.getJSONArray("ranks");
-            if (ranks == null || ranks.isEmpty()) {
-                log.warn("Steam热门游戏接口未返回排行榜数据");
-                return null;
-            }
-
-            List<Map<String, String>> gameList = new ArrayList<>();
-            for (int i = 0; i < ranks.size() && gameList.size() < STEAM_TOP_LIMIT; i++) {
-                JSONObject rankObj = ranks.getJSONObject(i);
-                if (rankObj == null) {
-                    continue;
-                }
-
-                String name = rankObj.getStr("name");
-                if (StrUtil.isBlank(name)) {
-                    continue;
-                }
-
-                Map<String, String> game = new HashMap<>();
-                game.put("rank", String.valueOf(rankObj.getInt("rank", i + 1)));
-                game.put("name", name);
-
-                long currentPlayers = firstPositiveNumber(rankObj, "concurrent_in_game", "current_players", "players", "avg_players");
-                long peakPlayers = firstPositiveNumber(rankObj, "peak_in_game", "peak_players", "24h_peak_players", "last_24h_peak_players");
-
-                if (currentPlayers > 0) {
-                    game.put("currentPlayers", String.valueOf(currentPlayers));
-                }
-                if (peakPlayers > 0) {
-                    game.put("peakPlayers", String.valueOf(peakPlayers));
-                }
-
-                String appId = rankObj.getStr("appid");
-                if (StrUtil.isNotBlank(appId)) {
-                    game.put("appid", appId);
-                }
-
-                if (game.containsKey("currentPlayers") || game.containsKey("peakPlayers")) {
-                    gameList.add(game);
-                }
-            }
-
-            if (gameList.isEmpty()) {
-                log.warn("Steam热门游戏接口数据无法解析有效的榜单信息");
-                return null;
-            }
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("source", "Steam API");
-            result.put("url", STEAM_TOP_GAMES_API);
-            result.put("count", gameList.size());
-            result.put("games", gameList);
-
-            return JSONUtil.toJsonPrettyStr(result);
-        } catch (Exception e) {
-            log.error("通过Steam接口获取热门游戏失败", e);
-            return null;
-        }
-    }
-
-    private String fetchSteamTopGamesFromHtml() {
-        try {
-            Document doc = Jsoup.connect(STEAM_STATS_URL)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .timeout(10000)
+            // 使用jsoup连接Steam畅销榜页面
+            Document doc = Jsoup.connect(STEAM_CHARTS_TOPSELLING_URL)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .header("Accept-Language", "zh-CN")
+                    .timeout(15000)
+                    .followRedirects(true)
                     .get();
 
-            String html = doc.outerHtml();
-            Pattern pattern = Pattern.compile("var\\s+g_rgTopPlayedApps\\s*=\\s*(\\[.*?\\]);", Pattern.DOTALL);
-            Matcher matcher = pattern.matcher(html);
-            if (!matcher.find()) {
-                log.warn("Steam统计页面未找到g_rgTopPlayedApps数据脚本");
-                return null;
-            }
-
-            String jsonArrayStr = matcher.group(1);
-            JSONArray array = JSONUtil.parseArray(jsonArrayStr);
-            if (array == null || array.isEmpty()) {
-                log.warn("Steam统计页面g_rgTopPlayedApps数据为空");
-                return null;
-            }
+            log.debug("成功获取Steam畅销榜页面HTML");
 
             List<Map<String, String>> gameList = new ArrayList<>();
-            for (int i = 0; i < array.size() && gameList.size() < STEAM_TOP_LIMIT; i++) {
-                JSONObject obj = array.getJSONObject(i);
-                if (obj == null) {
-                    continue;
-                }
 
-                String name = obj.getStr("name");
-                if (StrUtil.isBlank(name)) {
-                    continue;
-                }
-
-                Map<String, String> game = new HashMap<>();
-                game.put("rank", String.valueOf(i + 1));
-                game.put("name", name);
-
-                long current = parseLong(obj.getStr("current"));
-                long peak = parseLong(obj.getStr("peak"));
-
-                if (current > 0) {
-                    game.put("currentPlayers", String.valueOf(current));
-                }
-                if (peak > 0) {
-                    game.put("peakPlayers", String.valueOf(peak));
-                }
-
-                String appId = obj.getStr("appid");
-                if (StrUtil.isNotBlank(appId)) {
-                    game.put("appid", appId);
-                }
-
-                if (game.containsKey("currentPlayers") || game.containsKey("peakPlayers")) {
-                    gameList.add(game);
-                }
-            }
-
-            if (gameList.isEmpty()) {
-                log.warn("Steam统计页面脚本数据未解析到有效榜单");
-                return null;
-            }
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("source", "Steam");
-            result.put("url", STEAM_STATS_URL);
-            result.put("count", gameList.size());
-            result.put("games", gameList);
-
-            return JSONUtil.toJsonPrettyStr(result);
-        } catch (Exception e) {
-            log.error("爬取Steam热门游戏失败", e);
-            return null;
-        }
-    }
-
-    private String fetchSteamTopGamesFromSteamCharts() {
-        final String url = "https://steamcharts.com/top/p.1";
-        try {
-            Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .timeout(10000)
-                    .get();
-
-            Element table = doc.selectFirst("table.common-table");
-            if (table == null) {
-                log.warn("SteamCharts页面缺少排行榜表格");
-                return null;
-            }
-
-            Elements rows = table.select("tbody tr");
-            if (rows == null || rows.isEmpty()) {
-                log.warn("SteamCharts排行榜无有效数据行");
-                return null;
-            }
-
-            List<Map<String, String>> gameList = new ArrayList<>();
-            for (Element row : rows) {
+            // 从链接中提取（查找所有包含/app/的链接）
+            Elements links = doc.select("a[href*='/app/']");
+            int rank = 1;
+            for (Element link : links) {
                 if (gameList.size() >= STEAM_TOP_LIMIT) {
                     break;
                 }
 
-                Elements cols = row.select("td");
-                if (cols.size() < 5) {
+                String href = link.attr("href");
+                String appId = extractAppIdFromUrl(href);
+                if (StrUtil.isBlank(appId)) {
                     continue;
                 }
 
-                String rankText = cols.get(0).text();
-                String name = cols.get(1).text();
-                String current = cols.get(2).text();
-                String peak24h = cols.get(3).text();
-                String peakAll = cols.get(4).text();
+                // 检查是否已存在
+                boolean exists = gameList.stream()
+                        .anyMatch(g -> appId.equals(g.get("appid")));
+                if (exists) {
+                    continue;
+                }
 
+                String name = link.text().trim();
                 if (StrUtil.isBlank(name)) {
-                    continue;
-                }
-
-                Map<String, String> game = new HashMap<>();
-                if (StrUtil.isNotBlank(rankText)) {
-                    game.put("rank", rankText.replace("#", "").trim());
-                } else {
-                    game.put("rank", String.valueOf(gameList.size() + 1));
-                }
-                game.put("name", name);
-
-                long currentPlayers = parseLong(current);
-                long peakPlayers = parseLong(peak24h);
-                long allTimePeak = parseLong(peakAll);
-
-                if (currentPlayers > 0) {
-                    game.put("currentPlayers", String.valueOf(currentPlayers));
-                }
-                if (peakPlayers > 0) {
-                    game.put("peakPlayers", String.valueOf(peakPlayers));
-                } else if (allTimePeak > 0) {
-                    game.put("peakPlayers", String.valueOf(allTimePeak));
-                }
-
-                Element appLink = cols.get(1).selectFirst("a");
-                if (appLink != null) {
-                    String href = appLink.attr("href");
-                    String appId = extractAppIdFromUrl(href);
-                    if (StrUtil.isNotBlank(appId)) {
-                        game.put("appid", appId);
+                    // 尝试从父元素获取名称
+                    Element nameEl = link.selectFirst("span, div, h3, h4");
+                    if (nameEl != null) {
+                        name = nameEl.text().trim();
                     }
                 }
 
-                gameList.add(game);
+                if (StrUtil.isNotBlank(name)) {
+                    // 解析游戏名称，分离日期和价格
+                    Map<String, String> parsedInfo = parseGameName(name);
+                    
+                    Map<String, String> game = new HashMap<>();
+                    game.put("rank", String.valueOf(rank));
+                    game.put("name", parsedInfo.get("name"));
+                    game.put("appid", appId);
+                    
+                    // 如果有日期，添加日期字段
+                    if (StrUtil.isNotBlank(parsedInfo.get("date"))) {
+                        game.put("releaseDate", parsedInfo.get("date"));
+                    }
+                    
+                    // 如果有价格，添加价格字段
+                    if (StrUtil.isNotBlank(parsedInfo.get("price"))) {
+                        game.put("price", parsedInfo.get("price"));
+                    }
+                    
+                    gameList.add(game);
+                    rank++;
+                }
             }
 
             if (gameList.isEmpty()) {
-                log.warn("SteamCharts页面未解析到有效数据");
-                return null;
+                log.warn("Steam畅销榜页面无法解析到有效的游戏数据，HTML结构可能已变更");
+                // 输出部分HTML用于调试
+                log.debug("页面标题: {}", doc.title());
+                log.debug("页面部分HTML: {}", doc.body() != null ? doc.body().html().substring(0, Math.min(500, doc.body().html().length())) : "无body");
+                return "错误：Steam畅销榜页面无法解析到有效的游戏数据";
             }
 
             Map<String, Object> result = new HashMap<>();
-            result.put("source", "SteamCharts");
-            result.put("url", url);
+            result.put("source", "Steam Charts (Top Selling CN)");
+            result.put("url", STEAM_CHARTS_TOPSELLING_URL);
             result.put("count", gameList.size());
             result.put("games", gameList);
 
-            return JSONUtil.toJsonPrettyStr(result);
+            String jsonResult = JSONUtil.toJsonPrettyStr(result);
+            
+            // 将结果存入缓存
+            steamRankingCache.put(cacheKey, jsonResult);
+            log.debug("Steam排行榜数据已存入缓存");
+            
+            return jsonResult;
         } catch (Exception e) {
-            log.error("爬取SteamCharts热门游戏失败", e);
-            return null;
+            log.error("通过Steam畅销榜页面获取热门游戏失败", e);
+            return "错误：爬取Steam热门游戏排行榜失败 - " + e.getMessage();
         }
     }
+
+    /**
+     * 从JSON对象中解析游戏信息
+     */
+    private Map<String, String> parseGameFromJson(JSONObject gameObj, int rank) {
+        Map<String, String> game = new HashMap<>();
+        game.put("rank", String.valueOf(rank));
+        
+        String name = gameObj.getStr("name");
+        if (StrUtil.isBlank(name)) {
+            name = gameObj.getStr("title");
+        }
+        if (StrUtil.isNotBlank(name)) {
+            game.put("name", name);
+        }
+        
+        String appId = gameObj.getStr("appid");
+        if (StrUtil.isBlank(appId)) {
+            appId = gameObj.getStr("app_id");
+        }
+        if (StrUtil.isNotBlank(appId)) {
+            game.put("appid", appId);
+        }
+        
+        // 尝试获取价格信息
+        String price = gameObj.getStr("price");
+        if (StrUtil.isBlank(price)) {
+            price = gameObj.getStr("final_price");
+        }
+        if (StrUtil.isNotBlank(price)) {
+            game.put("price", price);
+        }
+        
+        // 尝试获取折扣信息
+        String discount = gameObj.getStr("discount");
+        if (StrUtil.isNotBlank(discount)) {
+            game.put("discount", discount);
+        }
+        
+        return game;
+    }
+    
+    /**
+     * 从HTML元素中解析游戏信息
+     */
+    private Map<String, String> parseGameFromElement(Element element, int rank) {
+        Map<String, String> game = new HashMap<>();
+        game.put("rank", String.valueOf(rank));
+        
+        // 尝试多种方式获取游戏名称
+        Element nameEl = element.selectFirst("a[href*='/app/'], .game_name, .chart_row_name, [class*='name'], [class*='Name']");
+        if (nameEl == null) {
+            nameEl = element.selectFirst("a, h3, h4, span.title, div.title");
+        }
+        
+        if (nameEl != null) {
+            String name = nameEl.text().trim();
+            if (StrUtil.isBlank(name)) {
+                name = nameEl.attr("title");
+            }
+            if (StrUtil.isNotBlank(name)) {
+                game.put("name", name);
+            }
+            
+            // 从链接中提取appid
+            String href = nameEl.attr("href");
+            if (StrUtil.isBlank(href)) {
+                Element link = nameEl.selectFirst("a");
+                if (link != null) {
+                    href = link.attr("href");
+                }
+            }
+            String appId = extractAppIdFromUrl(href);
+            if (StrUtil.isNotBlank(appId)) {
+                game.put("appid", appId);
+            }
+        }
+        
+        // 尝试获取价格信息
+        Element priceEl = element.selectFirst(".price, [class*='price'], [class*='Price']");
+        if (priceEl != null) {
+            String price = priceEl.text().trim();
+            if (StrUtil.isNotBlank(price)) {
+                game.put("price", price);
+            }
+        }
+        
+        // 尝试获取折扣信息
+        Element discountEl = element.selectFirst(".discount, [class*='discount'], [class*='Discount']");
+        if (discountEl != null) {
+            String discount = discountEl.text().trim();
+            if (StrUtil.isNotBlank(discount)) {
+                game.put("discount", discount);
+            }
+        }
+        
+        return game;
+    }
+    
+
+
+
+
+
 
     private String extractAppIdFromUrl(String url) {
         if (StrUtil.isBlank(url)) {
@@ -390,6 +329,69 @@ public class GameRankingTool {
             return matcher.group(1);
         }
         return null;
+    }
+
+    /**
+     * 解析游戏名称，分离日期和价格
+     * 例如："Counter-Strike 2 2012 年 8 月 21 日 免费" -> name: "Counter-Strike 2", date: "2012 年 8 月 21 日", price: "免费"
+     * 例如："ARC Raiders 2025 年 10 月 30 日 $39.99" -> name: "ARC Raiders", date: "2025 年 10 月 30 日", price: "$39.99"
+     */
+    private Map<String, String> parseGameName(String fullName) {
+        Map<String, String> result = new HashMap<>();
+        
+        if (StrUtil.isBlank(fullName)) {
+            result.put("name", "");
+            result.put("date", "");
+            result.put("price", "");
+            return result;
+        }
+        
+        String name = fullName.trim();
+        String date = null;
+        String price = null;
+        
+        // 匹配日期格式：年份 年 月份 月 日期 日（如 "2012 年 8 月 21 日"）
+        Pattern datePattern = Pattern.compile("(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日");
+        Matcher dateMatcher = datePattern.matcher(name);
+        
+        // 匹配价格格式：可能是 "免费"、"$数字"、"¥数字"、"€数字" 等
+        Pattern pricePattern = Pattern.compile("([$¥€£]\\s*\\d+(\\.\\d{1,2})?|\\d+(\\.\\d{1,2})?\\s*[$¥€£]|免费)");
+        
+        // 先查找日期和价格的位置
+        int dateStart = -1;
+        int priceStart = -1;
+        
+        if (dateMatcher.find()) {
+            dateStart = dateMatcher.start();
+            date = dateMatcher.group(0);
+        }
+        
+        Matcher priceMatcher = pricePattern.matcher(name);
+        if (priceMatcher.find()) {
+            priceStart = priceMatcher.start();
+            price = priceMatcher.group(0).trim();
+        }
+        
+        // 根据日期和价格的位置，提取游戏名称
+        // 通常格式是：游戏名 + 日期 + 价格，或者游戏名 + 价格
+        if (dateStart >= 0 && priceStart >= 0) {
+            // 两者都存在，取较小的位置作为游戏名称的结束位置
+            int endPos = Math.min(dateStart, priceStart);
+            name = name.substring(0, endPos).trim();
+        } else if (dateStart >= 0) {
+            // 只有日期
+            name = name.substring(0, dateStart).trim();
+        } else if (priceStart >= 0) {
+            // 只有价格
+            name = name.substring(0, priceStart).trim();
+        }
+        // 如果都没有，name保持原样
+        
+        result.put("name", name);
+        result.put("date", date != null ? date : "");
+        result.put("price", price != null ? price : "");
+        
+        return result;
     }
 
     private long firstPositiveNumber(JSONObject jsonObject, String... keys) {

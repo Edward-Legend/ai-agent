@@ -2,7 +2,7 @@
   <div class="home-container">
     <div class="header">
       <div class="glitch-wrapper">
-        <h1 class="glitch-title">游戏排行智能分析</h1>
+        <h1 class="glitch-title">鱼长AI超级智能体应用平台</h1>
       </div>
       <p class="subtitle">/ 洞察游戏行业趋势，助力决策 /</p>
       <div class="cyber-line"></div>
@@ -40,11 +40,11 @@ import AppFooter from '../components/AppFooter.vue'
 
 // 设置页面标题和元数据
 useHead({
-  title: '游戏排行智能分析 - AI智能分析平台',
+  title: '鱼长AI超级智能体应用平台 - AI智能分析平台',
   meta: [
     {
       name: 'description',
-      content: '游戏排行智能分析平台，自动检索游戏行业榜单、流量数据，提供专业的比较和分析功能，帮助您更高效地了解游戏行业变化'
+      content: '鱼长AI超级智能体应用平台，自动检索游戏行业榜单、流量数据，提供专业的比较和分析功能，帮助您更高效地了解游戏行业变化'
     },
     {
       name: 'keywords',
@@ -117,7 +117,7 @@ const navigateTo = (path) => {
 
 .glitch-title::before,
 .glitch-title::after {
-  content: '游戏排行智能分析';
+  content: '鱼长AI超级智能体应用平台';
   position: absolute;
   top: 0;
   left: 0;
@@ -508,4 +508,4 @@ const navigateTo = (path) => {
     opacity: 0.1;
   }
 }
-</style> 
+</style>

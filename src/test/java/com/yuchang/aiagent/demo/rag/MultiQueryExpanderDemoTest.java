@@ -16,7 +16,7 @@ class MultiQueryExpanderDemoTest {
 
     @Test
     void expand() {
-        List<Query> queries = multiQueryExpanderDemo.expand("啥是程序员鱼皮啊啊啊啊啊啊？！请回答我哈哈哈哈");
+        List<Query> queries = multiQueryExpanderDemo.expand("啥是程序员鱼长啊啊啊啊啊啊？！请回答我哈哈哈哈");
         Assertions.assertNotNull(queries);
     }
 }

@@ -16,7 +16,7 @@
           </p>
         </div>
         <div class="banner-actions">
-          <button class="refresh-button" @click="loadReports" :disabled="reportsLoading">
+          <button class="refresh-button" @click="loadCurrentTabReport" :disabled="reportsLoading">
             {{ reportsLoading ? '正在更新数据...' : '刷新榜单数据' }}
           </button>
           <span class="last-updated" v-if="lastUpdated">
@@ -26,15 +26,6 @@
       </section>
 
       <div class="main-layout">
-        <div class="chat-area">
-          <ChatRoom
-            :messages="messages"
-            :connection-status="connectionStatus"
-            ai-type="game-ranking"
-            @send-message="sendMessage"
-          />
-        </div>
-
         <div class="report-area">
           <div class="report-header">
             <div>
@@ -45,23 +36,52 @@
             </div>
           </div>
 
-          <div v-if="reportsError" class="report-error">
-            <p>{{ reportsError }}</p>
-            <button @click="loadReports">重新获取数据</button>
-          </div>
+          <div class="report-content-wrapper">
+            <!-- 图表和标签页区域 -->
+            <div class="chart-tabs-layout">
+              <!-- 标签页 - 移动到左侧 -->
+              <div class="tabs-container-vertical">
+                <button
+                  v-for="tab in tabs"
+                  :key="tab.key"
+                  :class="['tab-button-vertical', { active: activeTab === tab.key }]"
+                  @click="switchTab(tab.key)"
+                >
+                  {{ tab.label }}
+                </button>
+              </div>
 
-          <div v-else class="reports-grid">
-            <GameReportCard
-              v-for="report in reports"
-              :key="report.id"
-              :report="report"
-            />
+              <div class="chart-container">
+                <div v-if="reportsError" class="report-error">
+                  <p>{{ reportsError }}</p>
+                  <button @click="loadCurrentTabReport">重新获取数据</button>
+                </div>
 
-            <div v-if="reportsLoading && !reports.length" class="report-loading">
-              <div class="spinner"></div>
-              <p>正在抓取最新榜单数据...</p>
+                <div v-else class="reports-grid">
+                  <GameReportCard
+                    v-for="(report, index) in reports"
+                    :key="report.id"
+                    :report="report"
+                    :is-first="index === 0"
+                  />
+
+                  <div v-if="reportsLoading && !reports.length" class="report-loading">
+                    <div class="spinner"></div>
+                    <p>正在加载榜单数据...</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
+        </div>
+
+        <div class="chat-area">
+          <ChatRoom
+            :messages="messages"
+            :connection-status="connectionStatus"
+            ai-type="game-ranking"
+            @send-message="sendMessage"
+          />
         </div>
       </div>
     </div>
@@ -79,7 +99,7 @@ import { useHead } from '@vueuse/head'
 import ChatRoom from '../components/ChatRoom.vue'
 import GameReportCard from '../components/GameReportCard.vue'
 import AppFooter from '../components/AppFooter.vue'
-import { chatWithGameRanking, getLatestGameReports } from '../api'
+import { chatWithGameRanking, getLatestGameReports, getSteamReport, getTapTapReport, get3DMReport, getAnalysisResult } from '../api'
 
 useHead({
   title: '游戏排行智能分析 - AI智能分析平台',
@@ -102,7 +122,19 @@ const reports = ref([])
 const reportsLoading = ref(false)
 const reportsError = ref('')
 const lastUpdated = ref('')
+const activeTab = ref('steam')
 let eventSource = null
+
+// 缓存每个标签的数据
+const tabDataCache = ref({})
+// 记录哪些标签已经加载过
+const loadedTabs = ref(new Set())
+
+const tabs = [
+  { key: 'steam', label: 'Steam' },
+  { key: 'taptap', label: 'TapTap' },
+  { key: '3dm', label: '3DM' }
+]
 
 const addMessage = (content, isUser, type = '') => {
   messages.value.push({
@@ -161,6 +193,40 @@ const goBack = () => {
   router.push('/')
 }
 
+// 轮询获取分析结果
+const pollAnalysisResult = async (reportId, retryCount = 0) => {
+  const maxRetries = 60 // 最多重试60次（约1分钟，每次1秒）
+  
+  if (retryCount >= maxRetries) {
+    console.warn('获取分析结果超时')
+    return
+  }
+  
+  try {
+    const response = await getAnalysisResult(reportId)
+    if (response && response.data) {
+      if (response.data.status === 'completed' && response.data.analysisResult) {
+        // 找到对应的报告并更新分析结果
+        const reportIndex = reports.value.findIndex(r => r.id === reportId)
+        if (reportIndex !== -1) {
+          reports.value[reportIndex].analysisResult = response.data.analysisResult
+          // 更新缓存
+          if (tabDataCache.value[activeTab.value]) {
+            tabDataCache.value[activeTab.value].reports[reportIndex].analysisResult = response.data.analysisResult
+          }
+        }
+      } else if (response.data.status === 'pending') {
+        // 还在生成中，1秒后重试
+        setTimeout(() => pollAnalysisResult(reportId, retryCount + 1), 1000)
+      }
+    }
+  } catch (error) {
+    console.error('获取分析结果失败', error)
+    // 出错后也继续重试，但间隔稍长
+    setTimeout(() => pollAnalysisResult(reportId, retryCount + 1), 2000)
+  }
+}
+
 const formatDateTime = (value) => {
   if (!value) return ''
   const date = new Date(value)
@@ -170,37 +236,104 @@ const formatDateTime = (value) => {
   return date.toLocaleString('zh-CN', { hour12: false })
 }
 
-const loadReports = async () => {
+const switchTab = (tabKey) => {
+  if (activeTab.value === tabKey) return
+  activeTab.value = tabKey
+  
+  // 如果该标签已经加载过，直接使用缓存数据
+  if (loadedTabs.value.has(tabKey) && tabDataCache.value[tabKey]) {
+    reports.value = tabDataCache.value[tabKey].reports || []
+    lastUpdated.value = tabDataCache.value[tabKey].lastUpdated || ''
+    reportsError.value = tabDataCache.value[tabKey].error || ''
+    
+    // 检查是否有分析结果还在生成中，如果有则启动轮询
+    const cachedReports = tabDataCache.value[tabKey].reports || []
+    cachedReports.forEach(report => {
+      if (report.analysisResult === '正在生成分析结果...' && report.id) {
+        pollAnalysisResult(report.id, 0)
+      }
+    })
+  } else {
+    // 第一次点击，加载数据
+    loadCurrentTabReport()
+  }
+}
+
+const loadCurrentTabReport = async () => {
   if (reportsLoading.value) return
   reportsLoading.value = true
   reportsError.value = ''
 
   try {
-    const { data } = await getLatestGameReports()
-    if (Array.isArray(data) && data.length > 0) {
-      reports.value = data
-      const latestTime = data
-        .map(item => item.generatedAt)
-        .filter(Boolean)
-        .sort()
-        .pop()
-      lastUpdated.value = formatDateTime(latestTime)
+    let response
+    switch (activeTab.value) {
+      case 'steam':
+        response = await getSteamReport()
+        break
+      case 'taptap':
+        response = await getTapTapReport()
+        break
+      case '3dm':
+        response = await get3DMReport()
+        break
+      default:
+        response = await getSteamReport()
+    }
+
+    if (response && response.data) {
+      const reportData = [response.data]
+      reports.value = reportData
+      const updatedTime = response.data.generatedAt ? formatDateTime(response.data.generatedAt) : ''
+      lastUpdated.value = updatedTime
+      
+      // 如果分析结果还在生成中，启动轮询
+      if (response.data.analysisResult === '正在生成分析结果...' && response.data.id) {
+        pollAnalysisResult(response.data.id, 0)
+      }
+      
+      // 保存到缓存
+      tabDataCache.value[activeTab.value] = {
+        reports: reportData,
+        lastUpdated: updatedTime,
+        error: ''
+      }
+      loadedTabs.value.add(activeTab.value)
     } else {
       reports.value = []
       reportsError.value = '暂未获取到榜单数据，请稍后重试。'
       lastUpdated.value = ''
+      
+      // 保存错误状态到缓存
+      tabDataCache.value[activeTab.value] = {
+        reports: [],
+        lastUpdated: '',
+        error: '暂未获取到榜单数据，请稍后重试。'
+      }
+      loadedTabs.value.add(activeTab.value)
     }
   } catch (error) {
     console.error('获取榜单数据失败', error)
     reportsError.value = '获取榜单数据失败，请检查网络或稍后再试。'
+    
+    // 保存错误状态到缓存
+    tabDataCache.value[activeTab.value] = {
+      reports: [],
+      lastUpdated: '',
+      error: '获取榜单数据失败，请检查网络或稍后再试。'
+    }
+    loadedTabs.value.add(activeTab.value)
   } finally {
     reportsLoading.value = false
   }
 }
 
+const loadReports = () => {
+  loadCurrentTabReport()
+}
+
 onMounted(() => {
   addMessage('你好！我是游戏排行智能分析助手。我可以帮你：\n1. 自动检索游戏行业的各种榜单\n2. 分析游戏的流量、热度、玩家数据\n3. 比较不同游戏的表现和趋势\n4. 提供游戏行业洞察和建议\n\n请告诉我你想了解什么游戏数据？', false)
-  loadReports()
+  loadCurrentTabReport()
 })
 
 onBeforeUnmount(() => {
@@ -335,18 +468,30 @@ onBeforeUnmount(() => {
 
 .main-layout {
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.3fr);
+  grid-template-columns: minmax(480px, 1.5fr) minmax(320px, 1fr);
   gap: 24px;
+  align-items: start;
 }
 
 .chat-area {
   flex: 1 1 400px;
+  height: calc(100vh - 200px);
+  min-height: 600px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .report-area {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  height: calc(100vh - 200px);
+  min-height: 600px;
+}
+
+.report-header {
+  flex-shrink: 0;
 }
 
 .report-header h2 {
@@ -361,9 +506,88 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 
-.reports-grid {
+.report-content-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chart-tabs-layout {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.chart-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+  min-height: 0;
+}
+
+/* 自定义滚动条样式 */
+.chart-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chart-container::-webkit-scrollbar-track {
+  background: rgba(79, 117, 255, 0.05);
+  border-radius: 4px;
+}
+
+.chart-container::-webkit-scrollbar-thumb {
+  background: rgba(79, 117, 255, 0.3);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.chart-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(79, 117, 255, 0.5);
+}
+
+.tabs-container-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+  min-width: 120px;
+}
+
+.tab-button-vertical {
+  background: transparent;
+  border: none;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6c7ba1;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  border-radius: 8px 0 0 8px;
+  transition: all 0.3s ease;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tab-button-vertical:hover {
+  color: #4f75ff;
+  background: rgba(79, 117, 255, 0.08);
+}
+
+.tab-button-vertical.active {
+  color: #4f75ff;
+  border-left-color: #4f75ff;
+  background: rgba(79, 117, 255, 0.12);
+  font-weight: 600;
+}
+
+.reports-grid {
+  display: flex;
+  flex-direction: column;
   gap: 20px;
 }
 
@@ -443,6 +667,45 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: space-between;
   }
+
+  .report-area {
+    height: auto;
+    min-height: 500px;
+  }
+
+  .chart-tabs-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .tabs-container-vertical {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 0 0 8px 0;
+    min-width: auto;
+    border-bottom: 2px solid rgba(79, 117, 255, 0.1);
+  }
+
+  .tab-button-vertical {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    padding: 12px 20px;
+    white-space: nowrap;
+  }
+
+  .tab-button-vertical.active {
+    border-left: none;
+    border-bottom-color: #4f75ff;
+    background: rgba(79, 117, 255, 0.08);
+  }
+  
+  /* 确保标签文本在小屏幕上也能完整显示 */
+  .tab-button-vertical {
+    padding: 12px 16px;
+    font-size: 13px;
+    min-width: fit-content;
+  }
 }
 
 @media (max-width: 480px) {
@@ -464,6 +727,11 @@ onBeforeUnmount(() => {
 
   .refresh-button {
     width: 100%;
+  }
+
+  .report-area {
+    height: auto;
+    min-height: 400px;
   }
 }
 </style>

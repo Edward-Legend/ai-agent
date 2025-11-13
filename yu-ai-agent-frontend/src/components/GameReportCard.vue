@@ -1,5 +1,5 @@
 <template>
-  <div class="report-card">
+  <div class="report-card" :class="{ 'first-card': isFirst }">
     <div class="report-header">
       <div class="report-meta">
         <span class="source-tag">{{ report?.source ?? '未知来源' }}</span>
@@ -7,12 +7,12 @@
       </div>
       <h3 class="report-title">{{ report?.title ?? '游戏榜单分析' }}</h3>
     </div>
-    <div ref="chartRef" class="chart-canvas">
+    <div ref="chartRef" class="chart-canvas" :class="{ 'first-chart': isFirst }">
       <div v-if="!hasValidChart" class="chart-empty">暂无图表数据</div>
     </div>
     <div class="analysis-section">
       <h4>分析洞察</h4>
-      <p>{{ report?.analysisResult ?? '暂无分析结果' }}</p>
+      <p ref="analysisTextRef" class="analysis-text">{{ displayedAnalysis }}</p>
     </div>
     <div class="metadata" v-if="metadataEntries.length">
       <span v-for="(value, key) in metadataEntries" :key="key" class="meta-item">
@@ -34,12 +34,20 @@ const props = defineProps({
   report: {
     type: Object,
     default: () => ({})
+  },
+  isFirst: {
+    type: Boolean,
+    default: false
   }
 })
 
 const chartRef = ref(null)
+const analysisTextRef = ref(null)
 let chartInstance = null
 let resizeObserver = null
+let typewriterTimer = null
+const displayedAnalysis = ref('')
+const isChartRendered = ref(false)
 
 const hasValidChart = computed(() => {
   return props.report && props.report.chartConfig && !props.report.chartConfig.error
@@ -101,9 +109,86 @@ const renderChart = async () => {
 
   try {
     const option = JSON.parse(JSON.stringify(props.report.chartConfig))
+    
+    // 处理横向柱状图的标签显示：如果数据项包含rank字段，显示原始排名
+    if (option.series && Array.isArray(option.series)) {
+      option.series.forEach(series => {
+        if (series.type === 'bar' && series.data && Array.isArray(series.data)) {
+          // 检查数据项是否包含rank字段
+          const hasRankField = series.data.some(item => 
+            item && typeof item === 'object' && 'rank' in item
+          )
+          
+          if (hasRankField && series.label) {
+            // 使用函数形式的formatter来显示原始排名
+            series.label.formatter = (params) => {
+              if (params.data && typeof params.data === 'object' && params.data.rank) {
+                return `排名 ${params.data.rank}`
+              }
+              return params.value
+            }
+          }
+        }
+      })
+    }
+    
     chartInstance.setOption(option, true)
+    // 标记图表已渲染
+    isChartRendered.value = true
+    // 图表渲染完成后，如果分析结果已准备好（不是"正在生成分析结果..."），开始打字机效果
+    if (props.report?.analysisResult && props.report.analysisResult !== '正在生成分析结果...') {
+      startTypewriter()
+    } else if (props.report?.analysisResult === '正在生成分析结果...') {
+      // 显示加载提示
+      displayedAnalysis.value = '正在生成分析结果...'
+    }
   } catch (error) {
     console.error('渲染图表失败', error)
+    isChartRendered.value = true
+    // 即使图表渲染失败，也显示分析结果
+    if (props.report?.analysisResult) {
+      startTypewriter()
+    }
+  }
+}
+
+const startTypewriter = () => {
+  // 清除之前的定时器
+  if (typewriterTimer) {
+    clearInterval(typewriterTimer)
+  }
+  
+  const fullText = props.report?.analysisResult ?? '暂无分析结果'
+  displayedAnalysis.value = ''
+  let currentIndex = 0
+  
+  // 如果图表还没渲染完成，等待一下
+  if (!isChartRendered.value) {
+    const checkInterval = setInterval(() => {
+      if (isChartRendered.value) {
+        clearInterval(checkInterval)
+        typewriterTimer = setInterval(() => {
+          if (currentIndex < fullText.length) {
+            displayedAnalysis.value += fullText[currentIndex]
+            currentIndex++
+          } else {
+            clearInterval(typewriterTimer)
+            typewriterTimer = null
+          }
+        }, 30) // 每30ms显示一个字符
+      }
+    }, 100)
+  } else {
+    // 图表已渲染，直接开始打字机效果
+    typewriterTimer = setInterval(() => {
+      if (currentIndex < fullText.length) {
+        displayedAnalysis.value += fullText[currentIndex]
+        currentIndex++
+      } else {
+        clearInterval(typewriterTimer)
+        typewriterTimer = null
+      }
+    }, 30) // 每30ms显示一个字符
   }
 }
 
@@ -129,12 +214,28 @@ onBeforeUnmount(() => {
   if (resizeObserver && chartRef.value) {
     resizeObserver.unobserve(chartRef.value)
   }
+  if (typewriterTimer) {
+    clearInterval(typewriterTimer)
+  }
   disposeChart()
 })
 
 watch(() => props.report?.chartConfig, () => {
+  isChartRendered.value = false
+  displayedAnalysis.value = ''
   renderChart()
 }, { deep: true })
+
+watch(() => props.report?.analysisResult, (newVal, oldVal) => {
+  // 如果分析结果从"正在生成分析结果..."变为实际内容，且图表已渲染，重新开始打字机效果
+  if (newVal && newVal !== oldVal && newVal !== '正在生成分析结果...' && isChartRendered.value) {
+    displayedAnalysis.value = '' // 重置显示内容
+    startTypewriter()
+  } else if (newVal === '正在生成分析结果...' && isChartRendered.value) {
+    // 显示加载提示
+    displayedAnalysis.value = '正在生成分析结果...'
+  }
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -198,6 +299,10 @@ watch(() => props.report?.chartConfig, () => {
   overflow: hidden;
 }
 
+.chart-canvas.first-chart {
+  height: 400px;
+}
+
 .chart-empty {
   position: absolute;
   inset: 0;
@@ -221,6 +326,16 @@ watch(() => props.report?.chartConfig, () => {
   font-size: 14px;
   font-weight: 600;
   color: #4f75ff;
+}
+
+.analysis-text {
+  min-height: 1.6em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.report-card.first-card {
+  width: 100%;
 }
 
 .metadata {

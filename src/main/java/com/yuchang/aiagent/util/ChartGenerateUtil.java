@@ -37,19 +37,19 @@ public class ChartGenerateUtil {
             "\n" +
             "## 注意事项\n" +
             "1. 仅根据提供的数据进行分析，不要添加额外的数据。\n" +
-            "2. 严格按照指定的JSON格式输出，不要输出任何格式说明和解释。\n" +
+            "2. 严格按照指定的JSON格式输出，直接输出JSON对象，不要使用markdown代码块包裹，不要输出任何格式说明和解释。\n" +
             "3. 分析结果要简洁明了，不超过300字。\n" +
             "4. 请使用ECharts的配置格式，确保返回的JSON可以直接用于ECharts。\n" +
             "5. 图表标题、坐标轴、图例等都要设置中文。\n" +
             "6. 请生成一个默认有良好视觉效果的主题。\n" +
+            "7. 对于排名数据，优先使用横向柱状图（bar类型，设置grid布局和坐标轴方向），Y轴显示名称，X轴显示排名数值，便于展示完整的名称标签。\n" +
             "\n" +
             "## 输出格式\n" +
-            "```json\n" +
+            "直接输出JSON对象，格式如下（不要使用markdown代码块）：\n" +
             "{\n" +
             "  \"chart\": {ECharts配置对象},\n" +
             "  \"result\": \"分析结果字符串\"\n" +
             "}\n" +
-            "```\n" +
             "\n" +
             "请确保输出是一个有效的JSON，并且只包含chart和result两个字段。";
 
@@ -113,7 +113,10 @@ public class ChartGenerateUtil {
      */
     private BiResponse parseAIResponse(String response) {
         try {
-            JsonNode root = objectMapper.readTree(response);
+            // 先清理响应内容，提取JSON部分
+            String jsonContent = extractJsonFromResponse(response);
+            
+            JsonNode root = objectMapper.readTree(jsonContent);
             if (!root.has("chart") || !root.has("result")) {
                 throw new IllegalArgumentException("AI返回结果缺少chart或result字段");
             }
@@ -123,6 +126,48 @@ public class ChartGenerateUtil {
         } catch (Exception e) {
             throw new RuntimeException("解析AI响应失败", e);
         }
+    }
+
+    /**
+     * 从AI响应中提取JSON内容
+     * 处理可能包含markdown代码块的情况
+     */
+    private String extractJsonFromResponse(String response) {
+        if (StringUtils.isBlank(response)) {
+            throw new IllegalArgumentException("AI响应为空");
+        }
+        
+        String trimmed = response.trim();
+        
+        // 如果响应被markdown代码块包裹（```json ... ``` 或 ``` ... ```）
+        if (trimmed.startsWith("```")) {
+            // 查找第一个 ``` 后的内容
+            int startIndex = trimmed.indexOf("```");
+            if (startIndex >= 0) {
+                // 跳过开头的 ``` 和可能的语言标识符（如 json）
+                int codeStart = trimmed.indexOf('\n', startIndex);
+                if (codeStart > 0) {
+                    codeStart++; // 跳过换行符
+                    // 查找结束的 ```
+                    int endIndex = trimmed.lastIndexOf("```");
+                    if (endIndex > codeStart) {
+                        trimmed = trimmed.substring(codeStart, endIndex).trim();
+                    } else {
+                        // 如果没有找到结束标记，从第一个换行后开始到末尾
+                        trimmed = trimmed.substring(codeStart).trim();
+                    }
+                }
+            }
+        }
+        
+        // 尝试查找JSON对象边界（从第一个 { 到最后一个 }）
+        int firstBrace = trimmed.indexOf('{');
+        int lastBrace = trimmed.lastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            trimmed = trimmed.substring(firstBrace, lastBrace + 1);
+        }
+        
+        return trimmed;
     }
 
     /**
@@ -136,6 +181,94 @@ public class ChartGenerateUtil {
         }
         prompt.append("\n\n原始数据:\n").append(data);
         return prompt.toString();
+    }
+
+    /**
+     * 只生成AI分析结果，不生成图表配置
+     * 用于第一个图表使用规则生成，但保留AI分析的情况
+     */
+    public String generateAnalysisOnly(String data, String goal) {
+        if (chatClient == null) {
+            log.info("没有可用的ChatClient，使用默认分析结果。");
+            return buildFallbackAnalysisOnly(data, goal);
+        }
+
+        try {
+            // 构建只要求分析的提示词
+            StringBuilder prompt = new StringBuilder("分析需求：\n");
+            prompt.append(StringUtils.defaultIfBlank(goal, "请提供数据分析结论。"));
+            prompt.append("\n\n原始数据:\n").append(data);
+            prompt.append("\n\n请直接提供分析结论，不需要生成图表配置。分析结果要简洁明了，不超过300字。");
+
+            ChatResponse chatResponse = chatClient
+                    .prompt()
+                    .system("你是一个数据分析师，请根据提供的数据进行分析，给出简洁明了的分析结论，不超过300字。")
+                    .user(prompt.toString())
+                    .call()
+                    .chatResponse();
+            
+            String content = chatResponse.getResult().getOutput().getText();
+            // 清理可能的markdown格式
+            content = content.trim();
+            if (content.startsWith("```")) {
+                int start = content.indexOf('\n');
+                int end = content.lastIndexOf("```");
+                if (start > 0 && end > start) {
+                    content = content.substring(start + 1, end).trim();
+                }
+            }
+            return content;
+        } catch (Exception e) {
+            log.error("调用AI生成分析失败，将使用默认分析结果。", e);
+            return buildFallbackAnalysisOnly(data, goal);
+        }
+    }
+
+    /**
+     * 生成默认的分析结果（不包含图表）
+     */
+    private String buildFallbackAnalysisOnly(String data, String goal) {
+        try {
+            List<String[]> rows = parseCsv(data);
+            if (rows.size() <= 1) {
+                return "未从数据中解析出有效记录，请检查数据格式。";
+            }
+
+            String[] headers = rows.get(0);
+            int categoryIndex = 0;
+            int valueIndex = findNumericColumnIndex(rows, headers);
+
+            List<String> categories = new ArrayList<>();
+            List<Double> values = new ArrayList<>();
+            for (int i = 1; i < rows.size(); i++) {
+                String[] row = rows.get(i);
+                if (row.length == 0) {
+                    continue;
+                }
+                categories.add(row.length > categoryIndex ? row[categoryIndex] : "记录" + i);
+                double value = 1D;
+                if (valueIndex != -1 && row.length > valueIndex) {
+                    value = parseDouble(row[valueIndex], 1D);
+                } else if (row.length > categoryIndex && NumberUtils.isParsable(row[categoryIndex])) {
+                    value = parseDouble(row[categoryIndex], 1D);
+                }
+                values.add(value);
+            }
+
+            String seriesName = (valueIndex != -1 && valueIndex < headers.length) ? headers[valueIndex] : "统计值";
+            return buildFallbackAnalysisResult(goal, categories, values, seriesName);
+        } catch (Exception e) {
+            log.error("构建默认分析结果失败", e);
+            return "数据分析完成，共解析出" + (data.trim().split("\\r?\\n").length - 1) + "条记录。";
+        }
+    }
+
+    /**
+     * 使用规则生成图表（不调用AI），返回图表配置和分析结果
+     * 用于第一个图表需要快速渲染的场景
+     */
+    public BiResponse generateChartByRule(String data, String goal, String chartType) {
+        return buildFallbackChart(data, goal, chartType);
     }
 
     /**

@@ -79,6 +79,11 @@ export const get3DMReport = () => {
   return request.get('/ai/game-ranking/report/3dm')
 }
 
+// 获取分析结果（异步）
+export const getAnalysisResult = (reportId) => {
+  return request.get(`/ai/game-ranking/report/analysis/${reportId}`)
+}
+
 export default {
   chatWithLoveApp,
   chatWithManus,
@@ -86,5 +91,6 @@ export default {
   getLatestGameReports,
   getSteamReport,
   getTapTapReport,
-  get3DMReport
+  get3DMReport,
+  getAnalysisResult
 } 
